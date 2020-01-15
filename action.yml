@@ -1,0 +1,9 @@
+name: 'Pull Request Labeler'
+description: 'Label Pull Requests based on pull request state.'
+inputs:
+  config_path:
+    description: 'Path for label states.'
+    default: '.github/pr-labeler.yml'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
