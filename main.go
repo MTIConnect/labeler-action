@@ -83,12 +83,12 @@ func prStateFromEvent(eventName string, payload []byte) (prState, error) {
 	case *gh.PullRequestEvent:
 		pr := event.GetPullRequest()
 		labels = labelsToStrings(pr.Labels)
-		issueID = int(pr.GetID())
+		issueID = int(pr.GetNumber())
 		state = event.GetAction()
 	case *gh.PullRequestReviewEvent:
 		pr := event.GetPullRequest()
 		labels = labelsToStrings(pr.Labels)
-		issueID = int(pr.GetID())
+		issueID = int(pr.GetNumber())
 		switch event.GetAction() {
 		case "submitted":
 			switch strings.ToLower(event.GetReview().GetState()) {
