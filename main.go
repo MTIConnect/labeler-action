@@ -22,7 +22,7 @@ func main() {
 
 func run() error {
 	repo, err := github.NewRepositoryClient(
-		os.Getenv("GITHUB_TOKEN"),
+		os.Getenv("INPUT_GITHUB_TOKEN"),
 		os.Getenv("GITHUB_REPOSITORY"),
 	)
 
