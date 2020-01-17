@@ -156,6 +156,9 @@ func prStateFromEvent(client reviewsLister, eventName string, payload []byte) (p
 	pr := prGetter.GetPullRequest()
 
 	reviews, err := client.PullRequestReviews(int(pr.GetNumber()))
+	if err != nil {
+		return prState{}, fmt.Errorf("couldn't list pull request reviews: %w", err)
+	}
 
 	var approved, changesRequested bool
 	for _, review := range reviews {
