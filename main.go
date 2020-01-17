@@ -71,7 +71,7 @@ func run() error {
 
 type labelerConfig map[string]struct {
 	Draft            *bool
-	BranchName       string
+	BranchName       string `yaml:"branch_name"`
 	Title            string
 	ChangesRequested *bool `yaml:"changes_requested"`
 	Approved         *bool

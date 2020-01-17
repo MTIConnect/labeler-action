@@ -11,9 +11,11 @@ but focused for our workflow at MTI.
 Create a `.github/workflows/main.yml` file in the target repository if one doens't already exist:
 ```yaml
 name: CI
+
 on:
-  - pull_request
-  - pull_request_review
+  pull_request:
+      types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review: {}
 
 jobs:
   build:
@@ -25,7 +27,7 @@ jobs:
         GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 ```
 
-Then create config file `.github/pr-labeler.yml`, in the same repository, for example:
+Then create config file `.github/pr-labeler.yml` on the default branch, for example:
 ```yaml
 WIP:
   draft: true
