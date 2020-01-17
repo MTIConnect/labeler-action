@@ -5,18 +5,17 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"strings"
+	"regexp"
 
 	gh "github.com/google/go-github/v29/github"
 	"gopkg.in/yaml.v3"
 
 	"github.com/MTIConnect/labeler-action/github"
-	"github.com/MTIConnect/labeler-action/label"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("Action failed to complete: %s", err)
+		log.Fatalf("Action failed to complete: %s", err)
 	}
 }
 
@@ -33,7 +32,7 @@ func run() error {
 	}
 
 	// Parse the labels.
-	var config map[string]label.Operations
+	var config labelerConfig
 	err = yaml.Unmarshal(configFile, &config)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal labeler config: %w", err)
@@ -48,71 +47,174 @@ func run() error {
 	}
 
 	// Get PR State using event details.
-	state, err := prStateFromEvent(eventName, payload)
+	state, err := prStateFromEvent(repo, eventName, payload)
 	if err != nil {
 		return fmt.Errorf("failed to process state from webhook data: %w", err)
 	}
 
-	// Replace labels after configured label operations.
-	labels := config[state.state].Apply(state.labels)
-	err = repo.ReplaceLabelsForIssue(state.issueID, labels)
+	// Evaluate the config rules.
+	labels, err := config.labelsForPRState(state)
 	if err != nil {
-		return fmt.Errorf("failed to replace labels on pull request: %w", err)
+		return fmt.Errorf("failed to evaluate labels: %w", err)
+	}
+
+	// Replace labels after configured label operations.
+	if !stringSlicesEqual(state.labels, labels) {
+		err = repo.ReplaceLabelsForIssue(state.issueNumber, labels)
+		if err != nil {
+			return fmt.Errorf("failed to replace labels on pull request: %w", err)
+		}
 	}
 
 	return nil
 }
 
-// TODO: Pull this out and make it more generic?
-type prState struct {
-	issueID int
-	state   string
-	labels  []string
+type labelerConfig map[string]struct {
+	Draft            *bool
+	BranchName       string
+	Title            string
+	ChangesRequested *bool `yaml:"changes_requested"`
+	Approved         *bool
 }
 
-func prStateFromEvent(eventName string, payload []byte) (prState, error) {
+func (c labelerConfig) labelsForPRState(state prState) ([]string, error) {
+	labels := state.labels
+	for label, conditions := range c {
+		if conditions.Approved != nil &&
+			*conditions.Approved != state.approved {
+			labels = removeLabel(labels, label)
+			continue
+		}
+
+		if conditions.ChangesRequested != nil &&
+			*conditions.ChangesRequested != state.changesRequested {
+			labels = removeLabel(labels, label)
+			continue
+		}
+
+		if conditions.Draft != nil &&
+			*conditions.Draft != state.draft {
+			labels = removeLabel(labels, label)
+			continue
+		}
+
+		if conditions.Title != "" {
+			matched, err := regexp.MatchString(conditions.Title, state.title)
+			if err != nil {
+				return nil, fmt.Errorf("failed to compile title regexp: %w", err)
+			}
+			if !matched {
+				labels = removeLabel(labels, label)
+				continue
+			}
+		}
+
+		if conditions.BranchName != "" {
+			matched, err := regexp.MatchString(conditions.BranchName, state.branchName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to compile branch name regexp: %w", err)
+			}
+			if !matched {
+				labels = removeLabel(labels, label)
+				continue
+			}
+		}
+
+		labels = addLabel(labels, label)
+	}
+
+	return labels, nil
+}
+
+type prState struct {
+	issueNumber int
+	labels      []string
+
+	draft            bool
+	branchName       string
+	title            string
+	changesRequested bool
+	approved         bool
+}
+
+type reviewsLister interface {
+	PullRequestReviews(int) ([]github.Review, error)
+}
+
+func prStateFromEvent(client reviewsLister, eventName string, payload []byte) (prState, error) {
 	event, err := gh.ParseWebHook(eventName, payload)
 	if err != nil {
 		return prState{}, fmt.Errorf("failed to parse event data: %w", err)
 	}
 
-	var state string
-	var labels []string
-	var issueID int
-	switch event := event.(type) {
-	case *gh.PullRequestEvent:
-		pr := event.GetPullRequest()
-		labels = labelsToStrings(pr.Labels)
-		issueID = int(pr.GetNumber())
-		state = event.GetAction()
-	case *gh.PullRequestReviewEvent:
-		pr := event.GetPullRequest()
-		labels = labelsToStrings(pr.Labels)
-		issueID = int(pr.GetNumber())
-		switch event.GetAction() {
-		case "submitted":
-			switch strings.ToLower(event.GetReview().GetState()) {
-			case "approve":
-				state = "approved"
-			case "request_changes":
-				state = "changes_requested"
-			}
-		case "dismissed":
-			state = "ready_for_review"
+	prGetter, ok := event.(interface {
+		GetPullRequest() *gh.PullRequest
+	})
+	if !ok {
+		return prState{}, fmt.Errorf("event didn't relate to pull request")
+	}
+	pr := prGetter.GetPullRequest()
+
+	reviews, err := client.PullRequestReviews(int(pr.GetNumber()))
+
+	var approved, changesRequested bool
+	for _, review := range reviews {
+		if review == github.Approved {
+			approved = true
+		}
+		if review == github.ChangesRequested {
+			changesRequested = true
 		}
 	}
 
 	return prState{
-		state:   state,
-		labels:  labels,
-		issueID: issueID,
+		issueNumber: int(pr.GetNumber()),
+		labels:      labelNames(pr.Labels),
+
+		draft:            pr.GetDraft(),
+		title:            pr.GetTitle(),
+		branchName:       pr.GetHead().GetRef(),
+		approved:         approved,
+		changesRequested: changesRequested,
 	}, nil
 }
 
-func labelsToStrings(labels []*gh.Label) []string {
+func labelNames(labels []*gh.Label) []string {
 	strings := make([]string, 0, len(labels))
 	for _, label := range labels {
 		strings = append(strings, label.GetName())
 	}
 	return strings
+}
+
+func removeLabel(labels []string, removal string) []string {
+	n := 0
+	for _, label := range labels {
+		if label != removal {
+			labels[n] = label
+			n++
+		}
+	}
+	return labels[:n]
+}
+
+func addLabel(labels []string, addition string) []string {
+	for _, label := range labels {
+		if label == addition {
+			return labels
+		}
+	}
+	return append(labels, addition)
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

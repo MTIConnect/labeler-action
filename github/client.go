@@ -72,10 +72,45 @@ func (r RepositoryClient) DownloadFileFromDefaultBranch(path string) ([]byte, er
 }
 
 // ReplaceLabelsForIssue replaces the set of labels on an issue within the repository.
-func (r RepositoryClient) ReplaceLabelsForIssue(issueID int, labels []string) error {
-	_, _, err := r.client.Issues.ReplaceLabelsForIssue(context.TODO(), r.owner, r.name, issueID, labels)
+func (r RepositoryClient) ReplaceLabelsForIssue(number int, labels []string) error {
+	_, _, err := r.client.Issues.ReplaceLabelsForIssue(context.TODO(), r.owner, r.name, number, labels)
 	if err != nil {
 		return fmt.Errorf("failed to replace labels: %w", err)
 	}
 	return nil
+}
+
+// Review is the current state of a pull request review.
+type Review int
+
+// Review enum declaration.
+const (
+	Approved Review = iota
+	ChangesRequested
+	Dismissed
+	Commented
+)
+
+// PullRequestReviews returns a slice of review states on the pull request.
+func (r RepositoryClient) PullRequestReviews(number int) ([]Review, error) {
+	// TODO: paging might be an issue if there are a lot of reviews.
+	reviews, _, err := r.client.PullRequests.ListReviews(context.TODO(), r.owner, r.name, number, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list reviews for pull request: %w", err)
+	}
+
+	states := make([]Review, 0, len(reviews))
+	for _, review := range reviews {
+		switch strings.ToLower(review.GetState()) {
+		case "approved":
+			states = append(states, Approved)
+		case "changes_requested":
+			states = append(states, ChangesRequested)
+		case "dismissed":
+			states = append(states, Dismissed)
+		case "commented":
+			states = append(states, Commented)
+		}
+	}
+	return states, nil
 }
