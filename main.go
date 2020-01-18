@@ -37,7 +37,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal labeler config: %w", err)
 	}
-	log.Printf("Loaded action config: %s", os.Getenv("INPUT_CONFIG_PATH"))
+	log.Println("Loaded action config:", os.Getenv("INPUT_CONFIG_PATH"))
 
 	// Get event details for processing.
 	eventName := os.Getenv("GITHUB_EVENT_NAME")
@@ -51,12 +51,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("failed to process state from webhook data: %w", err)
 	}
+	log.Println("Calculated pr state:", state)
 
 	// Evaluate the config rules.
 	labels, err := config.labelsForPRState(state)
 	if err != nil {
 		return fmt.Errorf("failed to evaluate labels: %w", err)
 	}
+	log.Println("Current Labels:", state.labels)
+	log.Println("Calculated Labels:", labels)
 
 	// Replace labels after configured label operations.
 	if !stringSlicesEqual(state.labels, labels) {
@@ -78,7 +81,7 @@ type labelerConfig map[string]struct {
 }
 
 func (c labelerConfig) labelsForPRState(state prState) ([]string, error) {
-	labels := state.labels
+	labels := append([]string(nil), state.labels...)
 	for label, conditions := range c {
 		if conditions.Approved != nil &&
 			*conditions.Approved != state.approved {
@@ -154,32 +157,31 @@ func prStateFromEvent(client reviewsLister, eventName string, payload []byte) (p
 		return prState{}, fmt.Errorf("event didn't relate to pull request")
 	}
 	pr := prGetter.GetPullRequest()
+	state := prState{
+		issueNumber: int(pr.GetNumber()),
+		labels:      labelNames(pr.Labels),
+
+		draft:      pr.GetDraft(),
+		title:      pr.GetTitle(),
+		branchName: pr.GetHead().GetRef(),
+	}
 
 	reviews, err := client.PullRequestReviews(int(pr.GetNumber()))
 	if err != nil {
 		return prState{}, fmt.Errorf("couldn't list pull request reviews: %w", err)
 	}
+	log.Println("Retrieved review states:", reviews)
 
-	var approved, changesRequested bool
 	for _, review := range reviews {
 		if review == github.Approved {
-			approved = true
+			state.approved = true
 		}
 		if review == github.ChangesRequested {
-			changesRequested = true
+			state.changesRequested = true
 		}
 	}
 
-	return prState{
-		issueNumber: int(pr.GetNumber()),
-		labels:      labelNames(pr.Labels),
-
-		draft:            pr.GetDraft(),
-		title:            pr.GetTitle(),
-		branchName:       pr.GetHead().GetRef(),
-		approved:         approved,
-		changesRequested: changesRequested,
-	}, nil
+	return state, nil
 }
 
 func labelNames(labels []*gh.Label) []string {
