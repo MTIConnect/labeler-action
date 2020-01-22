@@ -83,13 +83,37 @@ func (r RepositoryClient) ReplaceLabelsForIssue(number int, labels []string) err
 // Review is the current state of a pull request review.
 type Review int
 
+func (r Review) String() string {
+	switch r {
+	case Approved:
+		return "approved"
+	case ChangesRequested:
+		return "changes_requested"
+	case Dismissed:
+		return "dismissed"
+	case Commented:
+		return "commented"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // Review enum declaration.
 const (
-	Approved Review = iota
+	Unknown Review = iota
+	Approved
 	ChangesRequested
 	Dismissed
 	Commented
 )
+
+// Map lookup table from string to Review enum.
+var reviewLookupTable = map[string]Review{
+	"approved":          Approved,
+	"changes_requested": ChangesRequested,
+	"dismissed":         Dismissed,
+	"commented":         Commented,
+}
 
 // PullRequestReviews returns a slice of review states on the pull request.
 func (r RepositoryClient) PullRequestReviews(number int) ([]Review, error) {
@@ -99,18 +123,20 @@ func (r RepositoryClient) PullRequestReviews(number int) ([]Review, error) {
 		return nil, fmt.Errorf("failed to list reviews for pull request: %w", err)
 	}
 
-	states := make([]Review, 0, len(reviews))
+	return normalizedReviews(reviews), nil
+}
+
+// normalizedReviews takes a slices of reviews and returns a list of each users latest review state.
+func normalizedReviews(reviews []*github.PullRequestReview) []Review {
+	// Reviews are in chronological order, overwrite previous reviews of the same user.
+	statePerUser := make(map[int64]Review)
 	for _, review := range reviews {
-		switch strings.ToLower(review.GetState()) {
-		case "approved":
-			states = append(states, Approved)
-		case "changes_requested":
-			states = append(states, ChangesRequested)
-		case "dismissed":
-			states = append(states, Dismissed)
-		case "commented":
-			states = append(states, Commented)
-		}
+		statePerUser[review.GetUser().GetID()] = reviewLookupTable[strings.ToLower(review.GetState())]
 	}
-	return states, nil
+
+	states := make([]Review, 0, len(statePerUser))
+	for _, review := range statePerUser {
+		states = append(states, review)
+	}
+	return states
 }
