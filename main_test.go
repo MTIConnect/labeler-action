@@ -250,7 +250,6 @@ func assertStringSlicesEqualUnordered(t *testing.T, a, b []string) {
 			t.Errorf("expected slices to equal unordered\nExpected: %v\nActual: %v", a, b)
 		}
 	}
-
 }
 
 func assertStringSlicesEqual(t *testing.T, a, b []string) {
