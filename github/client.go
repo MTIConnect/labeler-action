@@ -131,7 +131,12 @@ func normalizedReviews(reviews []*github.PullRequestReview) []Review {
 	// Reviews are in chronological order, overwrite previous reviews of the same user.
 	statePerUser := make(map[int64]Review)
 	for _, review := range reviews {
-		statePerUser[review.GetUser().GetID()] = reviewLookupTable[strings.ToLower(review.GetState())]
+		state := reviewLookupTable[strings.ToLower(review.GetState())]
+
+		// Ignore the commented state, as they aren't actual reviews.
+		if state != Commented {
+			statePerUser[review.GetUser().GetID()] = state
+		}
 	}
 
 	states := make([]Review, 0, len(statePerUser))

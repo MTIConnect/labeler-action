@@ -92,13 +92,11 @@ func TestNormalizedReviews(t *testing.T) {
 				&github.PullRequestReview{State: &approved, User: &github.User{ID: int64ToPtr(1)}},
 				&github.PullRequestReview{State: &changesRequested, User: &github.User{ID: int64ToPtr(2)}},
 				&github.PullRequestReview{State: &dismissed, User: &github.User{ID: int64ToPtr(3)}},
-				&github.PullRequestReview{State: &commented, User: &github.User{ID: int64ToPtr(4)}},
 			},
 			expected: []Review{
 				Approved,
 				ChangesRequested,
 				Dismissed,
-				Commented,
 			},
 		},
 		{
@@ -113,6 +111,18 @@ func TestNormalizedReviews(t *testing.T) {
 			expected: []Review{
 				Approved,
 				Approved,
+			},
+		},
+		{
+			name: "Ignores comment reviews",
+			reviews: []*github.PullRequestReview{
+				&github.PullRequestReview{State: &changesRequested, User: &github.User{ID: int64ToPtr(1)}},
+				&github.PullRequestReview{State: &commented, User: &github.User{ID: int64ToPtr(1)}},
+				&github.PullRequestReview{State: &commented, User: &github.User{ID: int64ToPtr(2)}},
+				&github.PullRequestReview{State: &commented, User: &github.User{ID: int64ToPtr(1)}},
+			},
+			expected: []Review{
+				ChangesRequested,
 			},
 		},
 	}
