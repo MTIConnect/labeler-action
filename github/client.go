@@ -117,13 +117,21 @@ var reviewLookupTable = map[string]Review{
 
 // PullRequestReviews returns a slice of review states on the pull request.
 func (r RepositoryClient) PullRequestReviews(number int) ([]Review, error) {
-	// TODO: paging might be an issue if there are a lot of reviews.
-	reviews, _, err := r.client.PullRequests.ListReviews(context.TODO(), r.owner, r.name, number, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list reviews for pull request: %w", err)
+	opt := &github.ListOptions{PerPage: 100}
+	var allReviews []*github.PullRequestReview
+	for {
+		reviews, resp, err := r.client.PullRequests.ListReviews(context.TODO(), r.owner, r.name, number, opt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list reviews for pull request: %w", err)
+		}
+		allReviews = append(allReviews, reviews...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
 	}
 
-	return normalizedReviews(reviews), nil
+	return normalizedReviews(allReviews), nil
 }
 
 // normalizedReviews takes a slices of reviews and returns a list of each users latest review state.
